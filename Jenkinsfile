@@ -1,56 +1,82 @@
+// Function to select Registry based on Parameter input
+def registrySelector(environment) {
+    switch (environment) {
+        case "DEV" :
+            return "app-dev-cloud"
+        case "QA" :
+            return "app-qa-cloud"
+        case "STAGING" :
+            return "app-staging-team"
+        case "PRODUCTION" :
+            return "app-prod-team"
+        default :
+            return "app-dev-cloud"
+    }
+}
+
 pipeline {
     agent any
 
+    parameters {
+        string(defaultValue: '', description: 'Enter Git Repo Name', name: 'GITREPO', trim: true)
+        gitParameter(branchFilter: 'origin/(.*)', defaultValue: 'main', name: 'GIT_BRANCHES', type: 'PT_BRANCH', description: 'Select branch', useRepository: '.*${params.GITREPO}.git')
+        choice(choices: ['--None--','DEV','QA','STAGING','PRODUCTION'], description: 'Select Environment', name: 'Environment_Name')
+        choice(choices: ['--None--','JDK_21','JDK_11','JDK_8'], description: 'Select JDK version', name: 'SELECT_TECH')
+        choice(choices: ['--None--','Maven','Gradle'], description: 'Select build tool', name: 'BUILD_TOOL_SELECTION')
+    }
+
     tools {
+        // Dynamically select Maven tool (ensure name matches Global Tool Config)
         maven 'Maven-3'
     }
 
-    // Define variables at the top to avoid typos in multiple stages
-    environment {
-        IMAGE_NAME = "jenkins-demo-svc"
-        CONTAINER_NAME = "jenkins-demo-svc-container"
-        HOST_PORT = "9091"
-        APP_PORT = "8081"
-    }
-
     stages {
-        // Stage 1: Compile and package the Java JAR
+        stage('Validation') {
+            steps {
+                script {
+                    if (params.Environment_Name == '--None--' || params.GITREPO == '') {
+                        error "Stopping Build: Environment or Repo Name not selected!"
+                    }
+                }
+            }
+        }
+
+        stage('Git Checkout') {
+            steps {
+                // Uses the parameters to checkout the specific branch and repo
+                git branch: "${params.GIT_BRANCHES}", url: "https://github.com/PrashantaPH/${params.GITREPO}.git"
+            }
+        }
+
         stage('Mvn Build') {
+            when { expression { params.BUILD_TOOL_SELECTION == 'Maven' } }
             steps {
                 sh 'mvn clean package -DskipTests'
             }
         }
 
-        // Stage 2: Build the Docker Image
-        stage('Docker Image Build') {
-            steps {
-                // --no-cache ensures that code changes are picked up every time
-                sh "docker build --no-cache -t ${IMAGE_NAME} ."
-            }
-        }
-
-        // Stage 3: Clean up old container and Run the new one
-        stage('Docker Deploy') {
+        stage('Docker Build & Deploy') {
             steps {
                 script {
-                    // 1. Remove the old container if it exists (using the exact same name)
-                    sh "docker rm -f ${CONTAINER_NAME} || true"
+                    // Use the function to get registry based on the CHOICE parameter
+                    def registryNamespace = registrySelector(params.Environment_Name)
+                    def imageName = "${params.PRODUCT_NAME.toLowerCase()}-${params.GITREPO.toLowerCase()}"
+                    def fullImageTag = "${registryNamespace}/${imageName}:${env.BUILD_NUMBER}"
+                    def containerName = "${imageName}-container"
 
-                    // 2. Start the new container
-                    sh "docker run -d --name ${CONTAINER_NAME} -p ${HOST_PORT}:${APP_PORT} ${IMAGE_NAME}"
+                    echo "Deploying ${params.PRODUCT_NAME} to ${params.Environment_Name} environment..."
+
+                    sh "docker build --no-cache -t ${fullImageTag} ."
+                    sh "docker rm -f ${containerName} || true"
+                    sh "docker run -d --name ${containerName} -p 9091:8081 ${fullImageTag}"
                 }
             }
         }
     }
 
-    // Optional: Cleanup unused images to save disk space
     post {
         success {
-            echo "Successfully deployed to http://localhost:${HOST_PORT}/api/message"
-        }
-        always {
-            // Removes dangling images left over from the build process
-            sh 'docker image prune -f'
+            echo "Successfully deployed version ${env.BUILD_NUMBER} to ${params.Environment_Name}"
         }
     }
 }
