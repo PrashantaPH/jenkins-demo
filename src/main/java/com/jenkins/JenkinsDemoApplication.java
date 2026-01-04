@@ -2,6 +2,7 @@ package com.jenkins;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -16,7 +17,7 @@ public class JenkinsDemoApplication {
 	}
 
 	@GetMapping("/message")
-	public String message() {
-		return "Direct mapping test working!";
+	public ResponseEntity<String> message() {
+		return ResponseEntity.ok("Successfully integrated CI/CD pipeline and running in a Docker container!");
 	}
 }
