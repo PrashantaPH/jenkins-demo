@@ -4,3 +4,9 @@ spring:
 
 server:
   port: 8081
+
+logging:
+  level:
+    root: INFO
+    org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping: TRACE
+    com.jenkins: DEBUG
